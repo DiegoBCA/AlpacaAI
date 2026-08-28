@@ -1,0 +1,254 @@
+"""
+SILVERCAWN — Advisor Mode (Copilot).
+
+Runs a single analysis cycle where Claude recommends a trade but does NOT
+execute it. The recommendation is saved with status='pending' and must be
+explicitly approved via the API to send the order.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from app.aggressiveness import AggressivenessProfile
+from app.database import Database
+from app.llm_client import TradingAgent
+from app.mcp_client import AlpacaMCPClient
+from app.risk_gates import run_all_risk_checks
+
+logger = logging.getLogger(__name__)
+
+
+async def run_advisor_cycle(
+    mcp_client: AlpacaMCPClient,
+    profile: AggressivenessProfile,
+    db: Database,
+) -> dict:
+    """
+    Execute one advisor cycle:
+    1. Create a Claude agent in advisor mode
+    2. Analyze the market (Claude uses MCP data tools only)
+    3. Save the recommendation with status='pending'
+    4. Return the recommendation data
+
+    Returns:
+        Dict with recommendation id and details.
+    """
+    logger.info("Starting advisor cycle (aggressiveness=%d, zone=%s)", profile.value, profile.zone)
+
+    agent = ClaudeTradingAgent(mcp_client=mcp_client, profile=profile)
+
+    try:
+        recommendation = await agent.analyze_market(mode="advisor")
+    except Exception as e:
+        logger.error("Advisor cycle failed during market analysis: %s", e)
+        raise
+
+    # Save to database
+    rec_id = await db.create_recommendation(
+        mode="advisor",
+        symbol=recommendation.symbol,
+        strategy=recommendation.strategy,
+        action=recommendation.action,
+        llm_reasoning=recommendation.reasoning,
+    )
+
+    logger.info(
+        "Advisor recommendation saved: id=%d, symbol=%s, strategy=%s",
+        rec_id, recommendation.symbol, recommendation.strategy,
+    )
+
+    return {
+        "id": rec_id,
+        "mode": "advisor",
+        "symbol": recommendation.symbol,
+        "strategy": recommendation.strategy,
+        "action": recommendation.action,
+        "reasoning": recommendation.reasoning,
+        "status": "pending",
+        "tool_calls": recommendation.tool_calls_made,
+    }
+
+
+async def approve_recommendation(
+    rec_id: int,
+    mcp_client: AlpacaMCPClient,
+    profile: AggressivenessProfile,
+    db: Database,
+) -> dict:
+    """
+    Approve a pending recommendation and attempt to execute the order.
+
+    Steps:
+    1. Load recommendation from DB
+    2. Verify it's still 'pending'
+    3. Run risk gates
+    4. If gates pass → execute via MCP
+    5. Save order to DB + update recommendation status
+
+    Returns:
+        Dict with order status and details.
+    """
+    # Load the recommendation
+    rec = await db.get_recommendation(rec_id)
+    if not rec:
+        raise ValueError(f"Recommendation {rec_id} not found")
+
+    if rec["status"] != "pending":
+        raise ValueError(
+            f"Recommendation {rec_id} is '{rec['status']}', not 'pending'"
+        )
+
+    logger.info("Approving recommendation %d: %s", rec_id, rec["action"])
+
+    # Build a proposed order from the recommendation
+    proposed_order = {
+        "instrument_type": rec.get("strategy") or "unknown",
+        "estimated_value": 5000.0,  # Default estimate — will be refined in later phases
+        "symbol": rec.get("symbol"),
+    }
+
+    # Get current positions via MCP (best-effort)
+    current_positions = []
+    account_equity = 100_000.0  # Default for paper account
+
+    try:
+        if mcp_client.is_connected:
+            # Try to get actual positions
+            positions_result = await mcp_client.call_tool("get_positions", {})
+            if hasattr(positions_result, "content") and positions_result.content:
+                positions_text = positions_result.content[0].text if hasattr(positions_result.content[0], "text") else str(positions_result.content[0])
+                try:
+                    current_positions = json.loads(positions_text)
+                    if not isinstance(current_positions, list):
+                        current_positions = []
+                except (json.JSONDecodeError, TypeError):
+                    current_positions = []
+
+            # Try to get account info
+            account_result = await mcp_client.call_tool("get_account", {})
+            if hasattr(account_result, "content") and account_result.content:
+                account_text = account_result.content[0].text if hasattr(account_result.content[0], "text") else str(account_result.content[0])
+                try:
+                    account_data = json.loads(account_text)
+                    account_equity = float(account_data.get("equity", 100_000))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+    except Exception as e:
+        logger.warning("Could not fetch positions/account for risk check: %s", e)
+
+    # Run risk gates
+    risk_result = await run_all_risk_checks(
+        profile=profile,
+        proposed_order=proposed_order,
+        current_positions=current_positions,
+        account_equity=account_equity,
+    )
+
+    if not risk_result.allowed:
+        # Risk gate blocked the order
+        await db.log_risk_gate_event(
+            recommendation_id=rec_id,
+            gate_name=risk_result.gate_name or "unknown",
+            proposed_action=json.dumps(proposed_order),
+            reason=risk_result.reason or "Unknown risk gate failure",
+        )
+        await db.update_recommendation_status(rec_id, "rejected")
+
+        logger.warning("Recommendation %d rejected by risk gate: %s", rec_id, risk_result.reason)
+        return {
+            "id": rec_id,
+            "status": "rejected",
+            "reason": risk_result.reason,
+            "gate": risk_result.gate_name,
+        }
+
+    # Risk gates passed — attempt to execute
+    try:
+        # Use Claude to formulate and execute the actual order
+        agent = ClaudeTradingAgent(mcp_client=mcp_client, profile=profile)
+
+        # Create a targeted prompt for order execution
+        from anthropic import Anthropic
+        from app.config import settings
+
+        client = Anthropic(api_key=settings.anthropic_api_key)
+        tools = await mcp_client.list_tools()
+
+        exec_response = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=2048,
+            system=(
+                "You are executing an approved trade recommendation. "
+                "Use the available tools to place this order on Alpaca paper trading. "
+                f"Recommendation: {rec['action']}\n"
+                f"Symbol: {rec['symbol']}\n"
+                f"Strategy: {rec['strategy']}\n"
+                "Place the order now."
+            ),
+            tools=tools,
+            messages=[
+                {"role": "user", "content": f"Execute this approved trade: {rec['action']}"}
+            ],
+        )
+
+        # Process tool calls for execution
+        order_result = None
+        messages = [
+            {"role": "user", "content": f"Execute this approved trade: {rec['action']}"},
+        ]
+        messages.append({"role": "assistant", "content": exec_response.content})
+
+        for block in exec_response.content:
+            if block.type == "tool_use":
+                try:
+                    result = await mcp_client.call_tool(block.name, block.input)
+                    result_text = ""
+                    if hasattr(result, "content") and result.content:
+                        result_text = getattr(result.content[0], "text", str(result.content[0]))
+                    order_result = result_text
+                except Exception as e:
+                    order_result = f"Order execution error: {e}"
+                    logger.error("Order execution via MCP failed: %s", e)
+
+        # Save order to DB
+        order_id = await db.create_order(
+            recommendation_id=rec_id,
+            alpaca_order_id=None,  # Will be parsed from result in future
+            symbol=rec.get("symbol"),
+            side=None,
+            qty=None,
+            order_type=rec.get("strategy"),
+            status="submitted",
+            raw_response=order_result,
+        )
+
+        await db.update_recommendation_status(rec_id, "executed")
+
+        logger.info("Recommendation %d executed, order %d created", rec_id, order_id)
+        return {
+            "id": rec_id,
+            "status": "executed",
+            "order_id": order_id,
+            "order_result": order_result,
+        }
+
+    except Exception as e:
+        logger.error("Failed to execute recommendation %d: %s", rec_id, e)
+        await db.update_recommendation_status(rec_id, "failed")
+        await db.create_order(
+            recommendation_id=rec_id,
+            alpaca_order_id=None,
+            symbol=rec.get("symbol"),
+            side=None,
+            qty=None,
+            order_type=rec.get("strategy"),
+            status="failed",
+            raw_response=str(e),
+        )
+        return {
+            "id": rec_id,
+            "status": "failed",
+            "error": str(e),
+        }
