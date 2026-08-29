@@ -2,7 +2,7 @@
 SILVERCAWN — Autonomous Mode (Autopilot).
 
 Runs a continuous background loop that evaluates the market at regular
-intervals and executes trades directly when Claude decides to act,
+intervals and executes trades directly when the LLM decides to act,
 subject to risk gate verification.
 """
 
@@ -28,7 +28,7 @@ class AutonomousLoop:
 
     Periodically:
     1. Fetches market data and account status via MCP
-    2. Sends to Claude for analysis + action
+    2. Sends to LLM for analysis + action
     3. Checks risk gates on any proposed trades
     4. Executes via MCP if gates pass
     5. Logs everything to DB
@@ -97,12 +97,18 @@ class AutonomousLoop:
                 logger.info("Autonomous loop cancelled.")
                 break
             except Exception as e:
-                logger.error("Autonomous cycle #%d error: %s", self._cycle_count, e, exc_info=True)
+                logger.error(
+                    "Autonomous cycle #%d error: %s",
+                    self._cycle_count,
+                    e,
+                    exc_info=True,
+                )
 
             if self.running:
                 logger.info(
                     "Autonomous cycle #%d complete. Sleeping %ds...",
-                    self._cycle_count, self.interval_seconds,
+                    self._cycle_count,
+                    self.interval_seconds,
                 )
                 try:
                     await asyncio.sleep(self.interval_seconds)
@@ -114,7 +120,7 @@ class AutonomousLoop:
         profile = get_aggressiveness_profile(self._aggressiveness_value)
 
         # 1. Create agent and analyze market
-        agent = ClaudeTradingAgent(mcp_client=self.mcp_client, profile=profile)
+        agent = TradingAgent(mcp_client=self.mcp_client, db=self.db)
 
         recommendation = await agent.analyze_market(mode="autonomous")
 
@@ -129,21 +135,28 @@ class AutonomousLoop:
 
         logger.info(
             "Autonomous recommendation #%d: symbol=%s, strategy=%s",
-            rec_id, recommendation.symbol, recommendation.strategy,
+            rec_id,
+            recommendation.symbol,
+            recommendation.strategy,
         )
 
-        # 3. Check if Claude actually executed any order tools
+        # 3. Check if the LLM actually executed any order tools
         order_tools = {"place_order", "place_option_order", "submit_order"}
         executed_orders = [
-            tc for tc in recommendation.tool_calls_made
+            tc
+            for tc in recommendation.tool_calls_made
             if tc["tool"] in order_tools
         ]
 
         if executed_orders:
-            # Claude already called order tools during analysis
+            # LLM already called order tools during analysis
             # Verify risk gates retroactively and log
+            inst_type = recommendation.strategy or "unknown"
+            if "spread" in inst_type.lower() or "put" in inst_type.lower() or "call" in inst_type.lower():
+                inst_type = profile.allowed_instruments[-1] if profile.allowed_instruments else inst_type
+
             proposed_order = {
-                "instrument_type": recommendation.strategy or "unknown",
+                "instrument_type": inst_type,
                 "estimated_value": 5000.0,
                 "symbol": recommendation.symbol,
             }
@@ -168,7 +181,8 @@ class AutonomousLoop:
                 )
                 await self.db.update_recommendation_status(rec_id, "rejected")
                 logger.warning(
-                    "Autonomous order rejected by risk gate: %s", risk_result.reason
+                    "Autonomous order rejected by risk gate: %s",
+                    risk_result.reason,
                 )
             else:
                 # Order was executed and risk gates pass
@@ -183,9 +197,11 @@ class AutonomousLoop:
                     raw_response=json.dumps(executed_orders),
                 )
                 await self.db.update_recommendation_status(rec_id, "executed")
-                logger.info("Autonomous order executed for recommendation %d", rec_id)
+                logger.info(
+                    "Autonomous order executed for recommendation %d", rec_id
+                )
         else:
-            # Claude analyzed but decided not to trade
+            # LLM analyzed but decided not to trade
             await self.db.update_recommendation_status(rec_id, "no_action")
             logger.info("Autonomous cycle: no trade opportunity found.")
 

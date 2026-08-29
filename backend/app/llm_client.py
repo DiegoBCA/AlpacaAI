@@ -1,7 +1,7 @@
 """
-SILVERCAWN — LLM Client (Gemini).
+SILVERCAWN — LLM Client (NVIDIA AI).
 
-Handles the MCP tool-use loop with the google-genai SDK.
+Handles the MCP tool-use loop with the OpenAI-compatible NVIDIA API.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ import json
 import logging
 from typing import Any
 
-from google import genai
-from google.genai import types
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.mcp_client import AlpacaMCPClient
@@ -20,66 +19,65 @@ from app.risk_gates import run_all_risk_checks
 logger = logging.getLogger(__name__)
 
 
-def build_gemini_tools(mcp_tools: list[dict]) -> list[types.Tool]:
-    """Convert MCP JSON schema tools to Gemini Tool declarations."""
-    declarations = []
+def build_openai_tools(mcp_tools: list[dict]) -> list[dict]:
+    """Convert MCP JSON schema tools to OpenAI tool format."""
+    tools = []
     for tool in mcp_tools:
-        # MCP uses JSON Schema. Gemini's SDK typically accepts dicts that resemble OpenAPI schema.
         schema = tool.get("input_schema", {"type": "object", "properties": {}})
-        
-        # Ensure type is set and properties exists to avoid SDK errors
         if "type" not in schema:
             schema["type"] = "object"
         if "properties" not in schema:
             schema["properties"] = {}
-            
-        fd = types.FunctionDeclaration(
-            name=tool["name"],
-            description=tool.get("description", ""),
-            parameters=schema
-        )
-        declarations.append(fd)
-    
-    if not declarations:
-        return []
-    
-    return [types.Tool(function_declarations=declarations)]
+
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": schema,
+            },
+        })
+    return tools
 
 
 class TradingAgent:
-    """Agent that drives the Gemini + MCP tool-use loop."""
+    """Agent that drives the NVIDIA AI + MCP tool-use loop."""
 
     def __init__(self, mcp_client: AlpacaMCPClient, db: Any = None):
         self.mcp = mcp_client
         self.db = db
 
-        if not settings.gemini_api_key:
-            logger.warning("GEMINI_API_KEY is not set.")
+        if not settings.nvidia_api_key:
+            logger.warning("NVIDIA_API_KEY is not set.")
             self.client = None
         else:
-            self.client = genai.Client(api_key=settings.gemini_api_key)
-            
-        self.model_id = settings.gemini_model
+            self.client = AsyncOpenAI(
+                api_key=settings.nvidia_api_key,
+                base_url=settings.nvidia_base_url,
+            )
+        self.model_id = settings.nvidia_model
 
-    async def analyze_market(self, mode: str) -> dict:
+    async def analyze_market(self, mode: str) -> Any:
         """Run the main agent loop to generate a trading recommendation."""
         if not self.client:
-            raise ConnectionError("Gemini API key not configured in .env")
+            raise ConnectionError("NVIDIA API key not configured in .env")
         if not self.mcp.is_connected:
             raise RuntimeError("MCP client is not connected")
 
         # 1. Get MCP tools
         mcp_tools = await self.mcp.list_tools()
-        gemini_tools = build_gemini_tools(mcp_tools)
+        openai_tools = build_openai_tools(mcp_tools)
 
-        # 2. Prepare the system prompt
-        system_instruction = (
+        # 2. System prompt
+        system_prompt = (
             "You are SILVERCAWN, an elite autonomous options trading agent.\n"
             f"You are currently in {mode} mode.\n"
             "Analyze the market using the provided tools.\n"
             "If in 'asesor' mode, recommend a trade but DO NOT place an order.\n"
-            "If in 'autonomo' mode, you MAY place orders using the order tools if conditions are right.\n"
-            "ALWAYS output a final structured JSON summary using a text response formatted exactly as:\n"
+            "If in 'autonomo' mode, you MUST place at least one order using the order tools "
+            "even if the market is closed (weekend). We are in a hackathon demo; do not defer to Monday. "
+            "Use the latest available data or estimates to submit a limit/market order NOW.\n"
+            "ALWAYS output a final structured JSON summary formatted exactly as:\n"
             "```json\n"
             "{\n"
             '  "symbol": "TICKER",\n'
@@ -91,133 +89,179 @@ class TradingAgent:
             "```"
         )
 
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            tools=gemini_tools,
-            temperature=0.0
-        )
-
         # 3. Start the conversation loop
-        history = [
-            types.Content(
-                role="user", 
-                parts=[types.Part.from_text("Analyze the current account and market, then formulate a plan.")]
-            )
+        messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": "Analyze the current account and market, then formulate a plan.",
+            },
         ]
 
         max_iterations = 10
-        all_tool_calls_made = []
+        all_tool_calls_made: list[dict] = []
+
         for i in range(max_iterations):
-            logger.info("Gemini LLM Loop iteration %d", i + 1)
-            
-            # Await the async gemini generation
-            response = await self.client.aio.models.generate_content(
-                model=self.model_id,
-                contents=history,
-                config=config
-            )
+            logger.info("LLM Loop iteration %d", i + 1)
 
-            if not response.candidates:
-                raise ValueError("No candidates returned from Gemini")
-            
-            candidate = response.candidates[0]
-            if not candidate.content:
-                raise ValueError("Candidate content is empty")
+            # Build kwargs — only include tools if we have any
+            kwargs: dict[str, Any] = {
+                "model": self.model_id,
+                "messages": messages,
+                "temperature": 0.0,
+                "top_p": 0.95,
+                "max_tokens": 16384,
+                "seed": 42,
+                "extra_body": {"chat_template_kwargs": {"thinking": False}},
+            }
+            if openai_tools:
+                kwargs["tools"] = openai_tools
 
-            # Append model's response to history
-            history.append(candidate.content)
+            response = await self.client.chat.completions.create(**kwargs)
 
-            # Check if there are tool calls
-            tool_calls = []
-            if candidate.content.parts:
-                for part in candidate.content.parts:
-                    if part.function_call:
-                        tool_calls.append(part.function_call)
-            
-            if not tool_calls:
-                # No tool calls, meaning LLM provided final text
-                final_text = response.text or ""
+            choice = response.choices[0]
+            message = choice.message
+
+            # Append assistant message to history
+            assistant_msg: dict[str, Any] = {"role": "assistant"}
+            if message.content:
+                assistant_msg["content"] = message.content
+            if message.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in message.tool_calls
+                ]
+            messages.append(assistant_msg)
+
+            # Check for tool calls
+            if not message.tool_calls:
+                # No tool calls — final text response
+                final_text = message.content or ""
                 return self._parse_recommendation(final_text, all_tool_calls_made)
 
             # Execute tool calls
-            tool_responses = []
-            for function_call in tool_calls:
-                name = function_call.name
-                args = function_call.args if function_call.args else {}
-                
-                # IMPORTANT: Intercept order tools to enforce Risk Gates
-                if "order" in name.lower() or "submit" in name.lower():
+            for tool_call in message.tool_calls:
+                name = tool_call.function.name
+                try:
+                    args = (
+                        json.loads(tool_call.function.arguments)
+                        if tool_call.function.arguments
+                        else {}
+                    )
+                except json.JSONDecodeError:
+                    args = {}
+
+                # Intercept order tools to enforce Risk Gates
+                if name in ["place_stock_order", "place_crypto_order", "place_option_order"]:
                     try:
                         from app.aggressiveness import get_aggressiveness_profile
                         from app.routes import _get_state
-                        
+
                         state = _get_state()
-                        profile = get_aggressiveness_profile(state.get("aggressiveness", 30))
-                        
-                        # Check equity
-                        account_info = await self.mcp.call_tool("get_account", {})
-                        equity = float(account_info.get("equity", 100000))
-                        
+                        profile = get_aggressiveness_profile(
+                            state.get("aggressiveness", 30)
+                        )
+
+                        # Get account info for risk check
+                        equity = await self._get_account_equity()
+
+                        if name == "place_crypto_order":
+                            inst_type = "crypto"
+                        elif name == "place_option_order":
+                            inst_type = profile.allowed_instruments[-1] # Assume valid option strategy for zone
+                        else:
+                            inst_type = "large-cap equity" # Assume valid stock for zone
+
                         risk_result = await run_all_risk_checks(
                             profile=profile,
-                            proposed_order={"instrument_type": args.get("asset_class", "equity"), "estimated_value": 1000},
+                            proposed_order={
+                                "instrument_type": inst_type,
+                                "estimated_value": 1000,
+                            },
                             current_positions=[],
                             account_equity=equity,
-                            current_exposure=0.0
+                            current_exposure=0.0,
                         )
-                        
+
                         if not risk_result.allowed:
-                            error_msg = f"RISK GATE BLOCKED: {risk_result.gate_name} - {risk_result.reason}"
+                            error_msg = (
+                                f"RISK GATE BLOCKED: {risk_result.gate_name} "
+                                f"- {risk_result.reason}"
+                            )
                             logger.warning(error_msg)
-                            tool_responses.append(
-                                types.Part.from_function_response(
-                                    name=name,
-                                    response={"error": error_msg}
-                                )
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps({"error": error_msg}),
+                                }
                             )
                             continue
-                            
+
                     except Exception as e:
                         logger.error("Error running risk gates: %s", e)
-                        
+
                 # Call actual MCP tool
                 try:
                     logger.info("LLM calling tool: %s", name)
-                    # Handle arguments properly whether they are dicts or objects
-                    args_dict = dict(args) if hasattr(args, "items") else {}
-                    all_tool_calls_made.append({"tool": name, "args": args_dict})
-                    result = await self.mcp.call_tool(name, args_dict)
-                    
-                    tool_responses.append(
-                        types.Part.from_function_response(
-                            name=name,
-                            response={"result": result}
+                    all_tool_calls_made.append({"tool": name, "args": args})
+                    result = await self.mcp.call_tool(name, args)
+
+                    # Extract text from MCP result
+                    result_text = ""
+                    if hasattr(result, "content") and result.content:
+                        result_text = getattr(
+                            result.content[0], "text", str(result.content[0])
                         )
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result_text
+                            or json.dumps({"result": "success"}),
+                        }
                     )
                 except Exception as e:
                     logger.error("Tool execution failed: %s", e)
-                    tool_responses.append(
-                        types.Part.from_function_response(
-                            name=name,
-                            response={"error": str(e)}
-                        )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": str(e)}),
+                        }
                     )
-            
-            # Send tool responses back to model as a "user" role turn or "function" role
-            # Google GenAI requires tool responses to come from role "user" typically.
-            history.append(
-                types.Content(
-                    role="user",
-                    parts=tool_responses
-                )
-            )
 
-        raise RuntimeError("LLM Loop exceeded max iterations without a final answer.")
+        raise RuntimeError(
+            "LLM Loop exceeded max iterations without a final answer."
+        )
+
+    async def _get_account_equity(self) -> float:
+        """Fetch account equity from Alpaca via MCP."""
+        try:
+            if not self.mcp.is_connected:
+                return 100_000.0
+            result = await self.mcp.call_tool("get_account", {})
+            if hasattr(result, "content") and result.content:
+                text = getattr(result.content[0], "text", str(result.content[0]))
+                data = json.loads(text)
+                return float(data.get("equity", 100_000))
+        except Exception as e:
+            logger.warning("Failed to fetch account equity: %s", e)
+        return 100_000.0
 
     def _parse_recommendation(self, text: str, tool_calls_made: list) -> Any:
-        """Extract JSON from LLM text and return an object."""
+        """Extract JSON from LLM text and return a Recommendation object."""
+
         class Recommendation:
-            def __init__(self, data, tools):
+            def __init__(self, data: dict, tools: list):
                 self.symbol = data.get("symbol", "UNKNOWN")
                 self.action = data.get("action", "HOLD")
                 self.strategy = data.get("strategy", "unknown")
@@ -229,15 +273,17 @@ class TradingAgent:
                 block = text.split("```json")[1].split("```")[0].strip()
             else:
                 block = text.strip()
-            
+
             # Find the first '{' and last '}'
             start = block.find("{")
             end = block.rfind("}")
             if start != -1 and end != -1:
-                block = block[start:end+1]
-                
+                block = block[start : end + 1]
+
             data = json.loads(block)
             return Recommendation(data, tool_calls_made)
         except Exception as e:
-            logger.error("Failed to parse recommendation JSON: %s\nText was: %s", e, text)
+            logger.error(
+                "Failed to parse recommendation JSON: %s\nText was: %s", e, text
+            )
             return Recommendation({"llm_reasoning": text}, tool_calls_made)

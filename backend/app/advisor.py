@@ -1,7 +1,7 @@
 """
 SILVERCAWN — Advisor Mode (Copilot).
 
-Runs a single analysis cycle where Claude recommends a trade but does NOT
+Runs a single analysis cycle where the LLM recommends a trade but does NOT
 execute it. The recommendation is saved with status='pending' and must be
 explicitly approved via the API to send the order.
 """
@@ -27,17 +27,21 @@ async def run_advisor_cycle(
 ) -> dict:
     """
     Execute one advisor cycle:
-    1. Create a Claude agent in advisor mode
-    2. Analyze the market (Claude uses MCP data tools only)
+    1. Create an LLM agent in advisor mode
+    2. Analyze the market (LLM uses MCP data tools only)
     3. Save the recommendation with status='pending'
     4. Return the recommendation data
 
     Returns:
         Dict with recommendation id and details.
     """
-    logger.info("Starting advisor cycle (aggressiveness=%d, zone=%s)", profile.value, profile.zone)
+    logger.info(
+        "Starting advisor cycle (aggressiveness=%d, zone=%s)",
+        profile.value,
+        profile.zone,
+    )
 
-    agent = ClaudeTradingAgent(mcp_client=mcp_client, profile=profile)
+    agent = TradingAgent(mcp_client=mcp_client, db=db)
 
     try:
         recommendation = await agent.analyze_market(mode="advisor")
@@ -56,7 +60,9 @@ async def run_advisor_cycle(
 
     logger.info(
         "Advisor recommendation saved: id=%d, symbol=%s, strategy=%s",
-        rec_id, recommendation.symbol, recommendation.strategy,
+        rec_id,
+        recommendation.symbol,
+        recommendation.strategy,
     )
 
     return {
@@ -110,7 +116,7 @@ async def approve_recommendation(
     }
 
     # Get current positions via MCP (best-effort)
-    current_positions = []
+    current_positions: list = []
     account_equity = 100_000.0  # Default for paper account
 
     try:
@@ -118,7 +124,11 @@ async def approve_recommendation(
             # Try to get actual positions
             positions_result = await mcp_client.call_tool("get_positions", {})
             if hasattr(positions_result, "content") and positions_result.content:
-                positions_text = positions_result.content[0].text if hasattr(positions_result.content[0], "text") else str(positions_result.content[0])
+                positions_text = getattr(
+                    positions_result.content[0],
+                    "text",
+                    str(positions_result.content[0]),
+                )
                 try:
                     current_positions = json.loads(positions_text)
                     if not isinstance(current_positions, list):
@@ -129,7 +139,11 @@ async def approve_recommendation(
             # Try to get account info
             account_result = await mcp_client.call_tool("get_account", {})
             if hasattr(account_result, "content") and account_result.content:
-                account_text = account_result.content[0].text if hasattr(account_result.content[0], "text") else str(account_result.content[0])
+                account_text = getattr(
+                    account_result.content[0],
+                    "text",
+                    str(account_result.content[0]),
+                )
                 try:
                     account_data = json.loads(account_text)
                     account_equity = float(account_data.get("equity", 100_000))
@@ -156,7 +170,9 @@ async def approve_recommendation(
         )
         await db.update_recommendation_status(rec_id, "rejected")
 
-        logger.warning("Recommendation %d rejected by risk gate: %s", rec_id, risk_result.reason)
+        logger.warning(
+            "Recommendation %d rejected by risk gate: %s", rec_id, risk_result.reason
+        )
         return {
             "id": rec_id,
             "status": "rejected",
@@ -164,61 +180,41 @@ async def approve_recommendation(
             "gate": risk_result.gate_name,
         }
 
-    # Risk gates passed — attempt to execute
+    # Risk gates passed — attempt to execute via MCP directly
     try:
-        # Use Claude to formulate and execute the actual order
-        agent = ClaudeTradingAgent(mcp_client=mcp_client, profile=profile)
+        # Determine order side from the recommendation action
+        action_str = (rec.get("action") or "").lower()
+        side = "buy" if "buy" in action_str else "sell"
 
-        # Create a targeted prompt for order execution
-        from anthropic import Anthropic
-        from app.config import settings
+        # Place order via MCP
+        order_args = {
+            "symbol": rec.get("symbol", ""),
+            "side": side,
+            "type": "market",
+            "time_in_force": "day",
+            "qty": "1",  # Conservative default for paper trading
+        }
 
-        client = Anthropic(api_key=settings.anthropic_api_key)
-        tools = await mcp_client.list_tools()
-
-        exec_response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=2048,
-            system=(
-                "You are executing an approved trade recommendation. "
-                "Use the available tools to place this order on Alpaca paper trading. "
-                f"Recommendation: {rec['action']}\n"
-                f"Symbol: {rec['symbol']}\n"
-                f"Strategy: {rec['strategy']}\n"
-                "Place the order now."
-            ),
-            tools=tools,
-            messages=[
-                {"role": "user", "content": f"Execute this approved trade: {rec['action']}"}
-            ],
-        )
-
-        # Process tool calls for execution
         order_result = None
-        messages = [
-            {"role": "user", "content": f"Execute this approved trade: {rec['action']}"},
-        ]
-        messages.append({"role": "assistant", "content": exec_response.content})
-
-        for block in exec_response.content:
-            if block.type == "tool_use":
-                try:
-                    result = await mcp_client.call_tool(block.name, block.input)
-                    result_text = ""
-                    if hasattr(result, "content") and result.content:
-                        result_text = getattr(result.content[0], "text", str(result.content[0]))
-                    order_result = result_text
-                except Exception as e:
-                    order_result = f"Order execution error: {e}"
-                    logger.error("Order execution via MCP failed: %s", e)
+        try:
+            result = await mcp_client.call_tool("place_order", order_args)
+            if hasattr(result, "content") and result.content:
+                order_result = getattr(
+                    result.content[0], "text", str(result.content[0])
+                )
+            else:
+                order_result = str(result)
+        except Exception as e:
+            order_result = f"Order execution error: {e}"
+            logger.error("Order execution via MCP failed: %s", e)
 
         # Save order to DB
         order_id = await db.create_order(
             recommendation_id=rec_id,
-            alpaca_order_id=None,  # Will be parsed from result in future
+            alpaca_order_id=None,  # Will be parsed from result in future phases
             symbol=rec.get("symbol"),
-            side=None,
-            qty=None,
+            side=side,
+            qty=1.0,
             order_type=rec.get("strategy"),
             status="submitted",
             raw_response=order_result,
@@ -226,7 +222,9 @@ async def approve_recommendation(
 
         await db.update_recommendation_status(rec_id, "executed")
 
-        logger.info("Recommendation %d executed, order %d created", rec_id, order_id)
+        logger.info(
+            "Recommendation %d executed, order %d created", rec_id, order_id
+        )
         return {
             "id": rec_id,
             "status": "executed",

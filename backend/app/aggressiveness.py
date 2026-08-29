@@ -5,6 +5,8 @@ Pure function with zero I/O dependencies. Maps a 0-100 integer to a complete
 trading profile including zone, instruments, strategy, and risk limits.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 

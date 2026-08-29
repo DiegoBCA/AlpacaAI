@@ -17,9 +17,12 @@ class Settings(BaseSettings):
     alpaca_secret_key: str = ""
     alpaca_paper_trade: bool = True  # Safety guard — always paper
 
-    # Gemini
-    gemini_api_key: Optional[str] = Field(None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field("gemini-2.5-flash", alias="GEMINI_MODEL")
+    # NVIDIA AI (OpenAI-compatible endpoint)
+    nvidia_api_key: Optional[str] = Field(None, alias="NVIDIA_API_KEY")
+    nvidia_model: str = Field("", alias="NVIDIA_MODEL")
+    nvidia_base_url: str = Field(
+        "https://integrate.api.nvidia.com/v1", alias="NVIDIA_BASE_URL"
+    )
 
     # Autonomous mode
     autonomous_interval_seconds: int = 60
@@ -37,9 +40,9 @@ class Settings(BaseSettings):
         """Check if Alpaca credentials are configured."""
         return bool(self.alpaca_api_key and self.alpaca_secret_key)
 
-    def validate_anthropic_key(self) -> bool:
-        """Check if Anthropic API key is configured."""
-        return bool(self.anthropic_api_key)
+    def validate_nvidia_key(self) -> bool:
+        """Check if NVIDIA AI API key is configured."""
+        return bool(self.nvidia_api_key)
 
 
 # Singleton instance

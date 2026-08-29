@@ -64,7 +64,7 @@ class AlpacaMCPClient:
         }
 
         server_params = StdioServerParameters(
-            command="uvx",
+            command=os.path.expanduser("~/.local/bin/uvx"),
             args=["alpaca-mcp-server"],
             env=env,
         )
@@ -85,13 +85,13 @@ class AlpacaMCPClient:
             )
             await self._session.initialize()
 
-            # Cache the tools list
             tools_result = await self._session.list_tools()
+
             self._tools_cache = [
                 {
                     "name": t.name,
                     "description": t.description or "",
-                    "input_schema": t.inputSchema,
+                    "input_schema": t.input_schema,
                 }
                 for t in tools_result.tools
             ]
@@ -130,11 +130,12 @@ class AlpacaMCPClient:
             raise RuntimeError("MCP client not connected. Call connect() first.")
 
         tools_result = await self._session.list_tools()  # type: ignore[union-attr]
+
         self._tools_cache = [
             {
                 "name": t.name,
                 "description": t.description or "",
-                "input_schema": t.inputSchema,
+                "input_schema": t.input_schema,
             }
             for t in tools_result.tools
         ]

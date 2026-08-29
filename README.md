@@ -1,6 +1,6 @@
 # SILVERCAWN — Autonomous Trading Agent 🦅
 
-Agente de IA autónomo para trading de opciones sobre la API de Alpaca, impulsado por Claude y Model Context Protocol (MCP). Creado para el hackathon LabLab.ai × Alpaca (2026).
+Agente de IA autónomo para trading de opciones sobre la API de Alpaca, impulsado por NVIDIA AI y Model Context Protocol (MCP). Creado para el hackathon LabLab.ai × Alpaca (2026).
 
 ## Características principales (Fase 1)
 - **Motor de Agresividad (0-100%):** Define instrumentos permitidos, estrategias y límites de riesgo (stop-loss, exposición) dinámicamente.
@@ -24,7 +24,7 @@ Copia el archivo de ejemplo y configura tus llaves:
 ```bash
 cp .env.example .env
 ```
-Edita `.env` y añade tus credenciales de [Alpaca Paper](https://app.alpaca.markets/paper/dashboard/overview) y [Anthropic](https://console.anthropic.com/).
+Edita `.env` y añade tus credenciales de [Alpaca Paper](https://app.alpaca.markets/paper/dashboard/overview) y [NVIDIA AI](https://build.nvidia.com).
 
 ### 2. Backend (FastAPI + SQLite)
 Abre una terminal y ejecuta:
@@ -65,5 +65,5 @@ pytest tests/ -v
 1. **Frontend:** React + Vite + Tailwind CSS v4 + Recharts.
 2. **Backend API:** FastAPI (endpoints de control).
 3. **Database:** SQLite async (`aiosqlite`) con schema relacional para logs, recomendaciones y risk events.
-4. **LLM Engine:** Anthropic SDK interactuando con Claude-Sonnet vía *tool-use loop*.
+4. **LLM Engine:** NVIDIA AI (OpenAI-compatible) con *tool-use loop*.
 5. **Trading Execution:** Cliente MCP nativo que instancia el `alpaca-mcp-server` oficial como subproceso.
