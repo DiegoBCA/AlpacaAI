@@ -1,14 +1,18 @@
-# SILVERCAWN — Autonomous Trading Agent 🦅
+# SILVERCAWN — Autonomous Options Trading Agent 🦅
 
-Agente de IA autónomo para trading de opciones sobre la API de Alpaca, impulsado por NVIDIA AI y Model Context Protocol (MCP). Creado para el hackathon LabLab.ai × Alpaca (2026).
+**SILVERCAWN** is an elite, fully autonomous AI trading agent built specifically for the **LabLab.ai × Alpaca (2026)** Hackathon. 
 
-## Características principales (Fase 1)
-- **Motor de Agresividad (0-100%):** Define instrumentos permitidos, estrategias y límites de riesgo (stop-loss, exposición) dinámicamente.
-- **Modo Asesor:** Analiza el mercado y recomienda trades. Requiere aprobación humana explícita.
-- **Modo Autónomo:** Loop continuo que analiza y ejecuta órdenes automáticamente.
-- **Risk Gates (Hard Limits):** Verificaciones de seguridad a nivel de código (exposición, posiciones, instrumentos) que el LLM no puede anular.
-- **Integración FastMCP:** Usa el servidor oficial `alpacahq/alpaca-mcp-server` v2 vía transporte `stdio`.
-- **Safeguards:** Bloqueado rígidamente para *Paper Trading* únicamente.
+Powered by **NVIDIA AI** (DeepSeek V4 Pro) and the **Model Context Protocol (MCP)**, SILVERCAWN constantly monitors the market, parses massive option chains, evaluates market sentiment, and executes risk-managed option strategies directly into an Alpaca Paper Trading account.
+
+---
+
+## 🌟 Hackathon Highlights
+
+- **🧠 NVIDIA AI Inference:** Utilizes `deepseek-v4-pro-0813` via NVIDIA's API to analyze complex market data and JSON option chains with deep reasoning.
+- **🔌 Alpaca MCP Server Integration:** Dynamically loads 35+ Alpaca trading and market data tools through the official `alpacahq/alpaca-mcp-server` over a native `stdio` transport.
+- **🛡️ Dynamic Risk Gates Engine:** A strict backend safety layer that intercepts AI tool calls. Risk tolerance is controlled via a slider (Conservative ➔ Moderate ➔ Aggressive ➔ Degen), which strictly dictates what instruments (ETFs vs Naked Puts) and maximum exposures the AI is allowed to trade.
+- **📈 Premium Ops Dashboard:** A stunning, glassmorphism-inspired React dashboard featuring live P&L charts, an integrated CNN *Fear & Greed* gauge, and a real-time Terminal Log to monitor the AI's "brain" and executions.
+- **🤖 Autonomous Loop:** Operates in a 60-second cycle evaluating time, calendar, account equity, positions, and live option data before firing logic chains.
 
 ---
 
@@ -16,15 +20,16 @@ Agente de IA autónomo para trading de opciones sobre la API de Alpaca, impulsad
 
 ### Prerrequisitos
 - Python 3.11+
-- Node.js 18+ y npm
-- `uv` (opcional pero recomendado para el MCP server)
+- Node.js 20+ y npm
+- `uv` (Requerido para instanciar el MCP server de forma fluida)
 
 ### 1. Variables de Entorno
 Copia el archivo de ejemplo y configura tus llaves:
 ```bash
 cp .env.example .env
 ```
-Edita `.env` y añade tus credenciales de [Alpaca Paper](https://app.alpaca.markets/paper/dashboard/overview) y [NVIDIA AI](https://build.nvidia.com).
+Edita `.env` y añade tus credenciales de [Alpaca Paper](https://app.alpaca.markets/paper/dashboard/overview) y [NVIDIA AI](https://build.nvidia.com). 
+*Nota: Asegúrate de tener las Opciones habilitadas en el dashboard de Alpaca.*
 
 ### 2. Backend (FastAPI + SQLite)
 Abre una terminal y ejecuta:
@@ -37,14 +42,25 @@ uvicorn app.main:app --reload
 ```
 La API estará disponible en `http://localhost:8000`.
 
-### 3. Frontend (React + Vite)
+### 3. Frontend (React + Tailwind v4)
 Abre otra terminal y ejecuta:
 ```bash
 cd frontend
+nvm use 20  # Opcional, asegurar node v20
 npm install
 npm run dev
 ```
-El dashboard estará disponible en `http://localhost:5173`.
+El dashboard Ops Center estará disponible en `http://localhost:5173`.
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+1. **Frontend:** React + Vite + Tailwind CSS v4 + Recharts + Lucide Icons. Diseñado con micro-animaciones y paletas HSL premium.
+2. **Backend API:** FastAPI (endpoints de control asíncrono).
+3. **Database:** SQLite async (`aiosqlite`) con schema relacional para logs, razonamientos del LLM (Recommendation Engine) y eventos de bloqueo de riesgos.
+4. **LLM Engine:** Cliente OpenAI-compatible apuntando a NVIDIA NIM.
+5. **Trading Execution:** Cliente MCP nativo que instancia el `alpaca-mcp-server` oficial usando `uvx` como subproceso.
 
 ---
 
@@ -58,12 +74,4 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
----
-
-## 🏗️ Arquitectura (Fase 1)
-
-1. **Frontend:** React + Vite + Tailwind CSS v4 + Recharts.
-2. **Backend API:** FastAPI (endpoints de control).
-3. **Database:** SQLite async (`aiosqlite`) con schema relacional para logs, recomendaciones y risk events.
-4. **LLM Engine:** NVIDIA AI (OpenAI-compatible) con *tool-use loop*.
-5. **Trading Execution:** Cliente MCP nativo que instancia el `alpaca-mcp-server` oficial como subproceso.
+> **Built with 💻 & ☕ for the Alpaca Hackathon 2026.**
