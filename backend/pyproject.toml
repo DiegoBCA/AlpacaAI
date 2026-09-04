@@ -12,7 +12,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    "mcp-server-alpaca>=0.1.0",
+    "alpaca-mcp-server>=2.0.0",
 ]
 [project.optional-dependencies]
 dev = [

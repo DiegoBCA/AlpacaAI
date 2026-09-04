@@ -64,7 +64,7 @@ class AlpacaMCPClient:
         }
 
         server_params = StdioServerParameters(
-            command="mcp-server-alpaca",
+            command="alpaca-mcp-server",
             args=[],
             env=env,
         )
