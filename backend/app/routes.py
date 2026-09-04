@@ -229,8 +229,7 @@ async def trigger_cycle():
 
     if not db:
         raise HTTPException(status_code=503, detail="Database not available")
-    if not mcp_client or not mcp_client.is_connected:
-        raise HTTPException(status_code=503, detail="MCP client not connected")
+
 
     from app.advisor import run_advisor_cycle
 

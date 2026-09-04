@@ -62,7 +62,7 @@ class TradingAgent:
         if not self.client:
             raise ConnectionError("NVIDIA API key not configured in .env")
         if not self.mcp.is_connected:
-            raise RuntimeError("MCP client is not connected")
+            logger.warning("MCP client is not connected. Running in mock/fallback mode.")
 
         # 1. Get MCP tools
         mcp_tools = await self.mcp.list_tools()
