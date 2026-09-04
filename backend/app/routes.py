@@ -1,5 +1,5 @@
 """
-SILVERCAWN — FastAPI Routes.
+SIGMA IA — FastAPI Routes.
 
 All REST API endpoints for the trading agent.
 """
@@ -251,10 +251,30 @@ async def trigger_cycle():
 @router.get("/pnl")
 async def get_pnl():
     """Get P&L snapshots."""
+    import json
     state = _get_state()
     db = state.get("db")
+    mcp_client = state.get("mcp_client")
+    
     if not db:
         raise HTTPException(status_code=503, detail="Database not available")
+
+    # Take live snapshot if MCP is connected
+    try:
+        if mcp_client and mcp_client.is_connected:
+            result = await mcp_client.call_tool("get_account_info", {})
+            if hasattr(result, "content") and result.content:
+                text = getattr(result.content[0], "text", str(result.content[0]))
+                data = json.loads(text)
+                await db.create_pnl_snapshot(
+                    equity=float(data.get("equity", 0)),
+                    cash=float(data.get("cash", 0)),
+                    buying_power=float(data.get("buying_power", 0)),
+                    pnl_total=float(data.get("equity", 0)) - 100_000,
+                    pnl_today=float(data.get("equity", 0)) - float(data.get("last_equity", data.get("equity", 0))),
+                )
+    except Exception as e:
+        logger.warning("Failed to snapshot P&L in route: %s", e)
 
     snapshots = await db.list_pnl_snapshots()
     return {"snapshots": snapshots}

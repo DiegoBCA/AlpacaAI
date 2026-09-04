@@ -1,5 +1,5 @@
 """
-SILVERCAWN — MCP Client for Alpaca MCP Server.
+SIGMA IA — MCP Client for Alpaca MCP Server.
 
 Manages the lifecycle of the Alpaca MCP Server subprocess (stdio transport)
 and provides methods to list/call tools.
@@ -144,16 +144,36 @@ class AlpacaMCPClient:
     async def call_tool(self, name: str, arguments: dict) -> Any:
         """
         Execute a tool on the Alpaca MCP Server.
-
-        Args:
-            name: The tool name (as returned by list_tools).
-            arguments: Dict of arguments to pass to the tool.
-
-        Returns:
-            The tool result from the MCP server.
         """
         if not self.is_connected:
             raise RuntimeError("MCP client not connected. Call connect() first.")
+
+        if name == "get_account_info":
+            # Intercept because Alpaca MCP server does not expose account info.
+            logger.info("Intercepted get_account_info, fetching via REST API.")
+            import httpx
+            import json
+            try:
+                async with httpx.AsyncClient() as client:
+                    res = await client.get(
+                        "https://paper-api.alpaca.markets/v2/account",
+                        headers={
+                            "APCA-API-KEY-ID": settings.alpaca_api_key,
+                            "APCA-API-SECRET-KEY": settings.alpaca_secret_key
+                        }
+                    )
+                    data = res.json()
+            except Exception as e:
+                logger.error("REST API call failed: %s", e)
+                data = {}
+
+            class MockContent:
+                def __init__(self, text):
+                    self.text = text
+            class MockResult:
+                def __init__(self, content):
+                    self.content = content
+            return MockResult([MockContent(json.dumps(data))])
 
         logger.info("Calling MCP tool: %s with args: %s", name, arguments)
 

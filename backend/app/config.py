@@ -1,5 +1,5 @@
 """
-SILVERCAWN — Configuration via Pydantic Settings.
+SIGMA IA — Configuration via Pydantic Settings.
 
 Reads from .env file. ALPACA_PAPER_TRADE is hardcoded to True as a safety guard.
 """
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     autonomous_interval_seconds: int = 60
 
     # Database
-    database_path: str = "silvercawn.db"
+    database_path: str = "sigma_ia.db"
 
     model_config = SettingsConfigDict(
         env_file=".env",

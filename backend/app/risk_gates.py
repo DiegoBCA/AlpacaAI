@@ -1,5 +1,5 @@
 """
-SILVERCAWN — Risk Gates.
+SIGMA IA — Risk Gates.
 
 Programmatic safety checks executed BEFORE any order is sent via MCP.
 These are the hard limits that the LLM cannot override.
@@ -35,7 +35,7 @@ def check_paper_trading_guard(base_url: str | None = None) -> RiskCheckResult:
             allowed=False,
             gate_name="paper_trading_guard",
             reason="BLOCKED: Attempted connection to live trading endpoint. "
-            "SILVERCAWN only supports paper trading.",
+            "SIGMA IA only supports paper trading.",
         )
     return RiskCheckResult(allowed=True)
 

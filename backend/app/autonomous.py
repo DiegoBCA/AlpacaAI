@@ -1,5 +1,5 @@
 """
-SILVERCAWN — Autonomous Mode (Autopilot).
+SIGMA IA — Autonomous Mode (Autopilot).
 
 Runs a continuous background loop that evaluates the market at regular
 intervals and executes trades directly when the LLM decides to act,
@@ -213,7 +213,7 @@ class AutonomousLoop:
         try:
             if not self.mcp_client.is_connected:
                 return []
-            result = await self.mcp_client.call_tool("get_positions", {})
+            result = await self.mcp_client.call_tool("get_all_positions", {})
             if hasattr(result, "content") and result.content:
                 text = getattr(result.content[0], "text", str(result.content[0]))
                 positions = json.loads(text)
@@ -227,7 +227,7 @@ class AutonomousLoop:
         try:
             if not self.mcp_client.is_connected:
                 return 100_000.0
-            result = await self.mcp_client.call_tool("get_account", {})
+            result = await self.mcp_client.call_tool("get_account_info", {})
             if hasattr(result, "content") and result.content:
                 text = getattr(result.content[0], "text", str(result.content[0]))
                 data = json.loads(text)
@@ -241,7 +241,7 @@ class AutonomousLoop:
         try:
             if not self.mcp_client.is_connected:
                 return
-            result = await self.mcp_client.call_tool("get_account", {})
+            result = await self.mcp_client.call_tool("get_account_info", {})
             if hasattr(result, "content") and result.content:
                 text = getattr(result.content[0], "text", str(result.content[0]))
                 data = json.loads(text)

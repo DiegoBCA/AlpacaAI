@@ -1,7 +1,7 @@
 [project]
-name = "silvercawn-backend"
+name = "sigma_ia-backend"
 version = "0.1.0"
-description = "SILVERCAWN — Autonomous Options Trading Agent (Backend)"
+description = "SIGMA IA — Autonomous Options Trading Agent (Backend)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]>=0.115.0",

@@ -1,8 +1,8 @@
-# SILVERCAWN — Autonomous Options Trading Agent 🦅
+# SIGMA IA — Autonomous Options Trading Agent 🦅
 
-**SILVERCAWN** is an elite, fully autonomous AI trading agent built specifically for the **LabLab.ai × Alpaca (2026)** Hackathon. 
+**SIGMA IA** is an elite, fully autonomous AI trading agent built specifically for the **LabLab.ai × Alpaca (2026)** Hackathon. 
 
-Powered by **NVIDIA AI** (DeepSeek V4 Pro) and the **Model Context Protocol (MCP)**, SILVERCAWN constantly monitors the market, parses massive option chains, evaluates market sentiment, and executes risk-managed option strategies directly into an Alpaca Paper Trading account.
+Powered by **NVIDIA AI** (DeepSeek V4 Pro) and the **Model Context Protocol (MCP)**, SIGMA IA constantly monitors the market, parses massive option chains, evaluates market sentiment, and executes risk-managed option strategies directly into an Alpaca Paper Trading account.
 
 ---
 

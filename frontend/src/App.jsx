@@ -159,7 +159,7 @@ export default function TradingDashboard() {
             </div>
             <div>
               <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-                SILVERCAWN OPS
+                SIGMA IA OPS
               </h1>
               <div className="flex items-center gap-3 text-sm mt-1">
                 <span className="text-slate-400 flex items-center gap-1">

@@ -1,5 +1,5 @@
 """
-SILVERCAWN — FastAPI Application Entry Point.
+SIGMA IA — FastAPI Application Entry Point.
 
 Handles application lifecycle (startup/shutdown), CORS, and router mounting.
 """
@@ -26,7 +26,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("silvercawn")
+logger = logging.getLogger("sigma_ia")
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ app_state: dict = {
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown of all services."""
     logger.info("=" * 60)
-    logger.info("SILVERCAWN Trading Agent starting up...")
+    logger.info("SIGMA IA Trading Agent starting up...")
     logger.info("=" * 60)
 
     # 1. Initialize database
@@ -97,14 +97,14 @@ async def lifespan(app: FastAPI):
     # 4. Inject state into routes
     set_app_state(app_state)
 
-    logger.info("SILVERCAWN ready. Mode=%s, Aggressiveness=%d",
+    logger.info("SIGMA IA ready. Mode=%s, Aggressiveness=%d",
                 app_state["mode"], app_state["aggressiveness"])
     logger.info("API docs: http://localhost:8000/docs")
 
     yield  # --- App is running ---
 
     # Shutdown
-    logger.info("SILVERCAWN shutting down...")
+    logger.info("SIGMA IA shutting down...")
 
     if autonomous_loop.is_running:
         await autonomous_loop.stop()
@@ -114,14 +114,14 @@ async def lifespan(app: FastAPI):
 
     await db.close()
 
-    logger.info("SILVERCAWN shutdown complete.")
+    logger.info("SIGMA IA shutdown complete.")
 
 
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="SILVERCAWN Trading Agent",
+    title="SIGMA IA Trading Agent",
     description="Autonomous options trading agent powered by Claude + Alpaca MCP",
     version="0.1.0",
     lifespan=lifespan,
@@ -130,7 +130,7 @@ app = FastAPI(
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

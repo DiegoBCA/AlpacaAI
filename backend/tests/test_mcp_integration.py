@@ -48,11 +48,11 @@ class TestMCPClientUnit:
         """Should return cached tools without hitting MCP."""
         client = AlpacaMCPClient()
         client._tools_cache = [
-            {"name": "get_account", "description": "Get account info", "input_schema": {}}
+            {"name": "get_account_info", "description": "Get account info", "input_schema": {}}
         ]
         tools = await client.list_tools()
         assert len(tools) == 1
-        assert tools[0]["name"] == "get_account"
+        assert tools[0]["name"] == "get_account_info"
 
     @pytest.mark.asyncio
     async def test_disconnect_cleans_up(self):
@@ -97,7 +97,7 @@ class TestMCPClientIntegration:
             # Verify essential tools exist
             tool_names = {t["name"] for t in tools}
             # These should exist in the Alpaca MCP Server
-            assert "get_account" in tool_names or any(
+            assert "get_account_info" in tool_names or any(
                 "account" in name for name in tool_names
             ), f"No account tool found. Available: {tool_names}"
 

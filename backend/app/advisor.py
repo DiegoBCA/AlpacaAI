@@ -1,5 +1,5 @@
 """
-SILVERCAWN — Advisor Mode (Copilot).
+SIGMA IA — Advisor Mode (Copilot).
 
 Runs a single analysis cycle where the LLM recommends a trade but does NOT
 execute it. The recommendation is saved with status='pending' and must be
@@ -122,7 +122,7 @@ async def approve_recommendation(
     try:
         if mcp_client.is_connected:
             # Try to get actual positions
-            positions_result = await mcp_client.call_tool("get_positions", {})
+            positions_result = await mcp_client.call_tool("get_all_positions", {})
             if hasattr(positions_result, "content") and positions_result.content:
                 positions_text = getattr(
                     positions_result.content[0],
@@ -137,7 +137,7 @@ async def approve_recommendation(
                     current_positions = []
 
             # Try to get account info
-            account_result = await mcp_client.call_tool("get_account", {})
+            account_result = await mcp_client.call_tool("get_account_info", {})
             if hasattr(account_result, "content") and account_result.content:
                 account_text = getattr(
                     account_result.content[0],
@@ -197,7 +197,7 @@ async def approve_recommendation(
 
         order_result = None
         try:
-            result = await mcp_client.call_tool("place_order", order_args)
+            result = await mcp_client.call_tool("place_stock_order", order_args)
             if hasattr(result, "content") and result.content:
                 order_result = getattr(
                     result.content[0], "text", str(result.content[0])

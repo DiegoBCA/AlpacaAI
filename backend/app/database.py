@@ -1,5 +1,5 @@
 """
-SILVERCAWN — SQLite Database Layer.
+SIGMA IA — SQLite Database Layer.
 
 Async database operations using aiosqlite. Manages schema creation and
 CRUD operations for aggressiveness logs, recommendations, orders,
@@ -80,9 +80,9 @@ CREATE TABLE IF NOT EXISTS pnl_snapshots (
 
 
 class Database:
-    """Async SQLite database wrapper for SILVERCAWN."""
+    """Async SQLite database wrapper for SIGMA IA."""
 
-    def __init__(self, db_path: str = "silvercawn.db"):
+    def __init__(self, db_path: str = "sigma_ia.db"):
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
 
