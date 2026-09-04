@@ -64,12 +64,12 @@ class AlpacaMCPClient:
         }
 
         server_params = StdioServerParameters(
-            command=os.path.expanduser("~/.local/bin/uvx"),
-            args=["alpaca-mcp-server"],
+            command="mcp-server-alpaca",
+            args=[],
             env=env,
         )
 
-        logger.info("Starting Alpaca MCP Server via uvx...")
+        logger.info("Starting Alpaca MCP Server natively...")
 
         self._exit_stack = AsyncExitStack()
 
