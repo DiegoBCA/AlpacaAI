@@ -1,4 +1,5 @@
-const API_BASE = "http://localhost:8000";
+// Use Vercel Environment Variable if available, otherwise default to local backend
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export const getStatus = () => fetch(`${API_BASE}/status`).then(r => r.json());
 
